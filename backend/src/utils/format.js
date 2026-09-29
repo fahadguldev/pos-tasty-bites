@@ -26,6 +26,18 @@ export function isValidPkPhone(value) {
   return /^92\d{10}$/.test(digits);
 }
 
+/**
+ * The demo seed uses placeholder numbers like 923001111111, where a single digit
+ * repeats. A real mobile number does not look like that, so the contact backfill
+ * skips anything matching — this stops a demo order from silently becoming a
+ * broadcast recipient.
+ */
+export function isLikelyDemoPhone(value) {
+  const digits = normalisePhone(value);
+  if (!digits) return false;
+  return /(\d)\1{4,}/.test(digits);
+}
+
 export function startOfDay(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
