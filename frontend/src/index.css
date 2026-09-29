@@ -77,8 +77,10 @@
          disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98];
 }
 
+/* Touch targets are ~44px on phones and tighten up on pointer devices, where a
+   mouse makes the extra 8px just visual bulk. */
 @utility btn-sm {
-  @apply h-9 px-3 text-sm;
+  @apply h-11 px-3 text-sm sm:h-9;
 }
 
 @utility btn-md {
@@ -126,11 +128,15 @@
     @apply btn bg-wa-600 text-white shadow-sm hover:bg-wa-700;
   }
 
+  /* 16px on phones, 14px from sm up. Anything under 16px makes iOS Safari
+     zoom the whole page the moment the field is focused, which then has to be
+     zoomed back out to read the form — the single most common mobile form bug. */
   .input {
-    @apply w-full rounded-xl border border-ink-300 bg-white px-3.5 py-2.5 text-sm text-ink-900
+    @apply w-full rounded-xl border border-ink-300 bg-white px-3.5 py-2.5 text-base text-ink-900
            placeholder:text-ink-400 transition
            focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 focus:outline-none
-           disabled:bg-ink-100 disabled:text-ink-500;
+           disabled:bg-ink-100 disabled:text-ink-500
+           sm:text-sm;
   }
 
   .label {
