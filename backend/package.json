@@ -1,27 +1,29 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
-  "description": "",
+  "name": "tasty-bites-api",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "run": "nodemon index.js"
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "seed": "node src/seed/seed.js",
+    "test": "node src/smoke.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
   "dependencies": {
-    "bcryptjs": "^3.0.2",
-    "cookies": "^0.9.1",
+    "cloudinary": "^2.7.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.2",
-    "pdfkit": "^0.13.0"
+    "mongoose-lean-virtuals": "^2.1.0",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "pdfkit": "^0.17.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "mongodb-memory-server": "^10.2.3"
   }
 }
