@@ -1,46 +1,53 @@
-import bcrypt from 'bcryptjs';
-import Tenant from '../models/Tenant.js';
-import User from '../models/User.js';
+import Admin from '../models/Admin.js';
+import { signToken } from '../middleware/auth.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
-// Signup: create tenant + owner user
-export async function signup(req, res, next) {
-  try {
-    const { shopName, email, password, name } = req.body;
-    if (!shopName || !email || !password) {
-      return res.status(400).json({ error: 'shopName, email and password are required' });
-    }
+export const login = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(409).json({ error: 'Email already used' });
-
-    const tenant = await Tenant.create({ name: shopName });
-    const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({ tenant: tenant._id, email, passwordHash, role: 'owner', name });
-
-    // For MVP we return tenant id and user id. Replace with JWT later.
-    return res.status(201).json({ tenantId: tenant._id, userId: user._id });
-  } catch (err) {
-    next(err);
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
   }
-}
 
-// Login: simple password check (placeholder for JWT)
-export async function login(req, res, next) {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+  const admin = await Admin.findOne({ email: String(email).toLowerCase().trim() });
+  if (!admin) return res.status(401).json({ error: 'Invalid email or password' });
 
-    const user = await User.findOne({ email }).populate('tenant');
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  const match = await admin.verifyPassword(password);
+  if (!match) return res.status(401).json({ error: 'Invalid email or password' });
 
-    const match = await bcrypt.compare(password, user.passwordHash);
-    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+  admin.lastLoginAt = new Date();
+  await admin.save();
 
-    // TODO: return JWT. For now return tenantId and user info
-    return res.json({ userId: user._id, tenantId: user.tenant._id, role: user.role, email: user.email });
-  } catch (err) {
-    next(err);
+  res.json({
+    token: signToken(admin),
+    admin: { id: admin._id, name: admin.name, email: admin.email, role: admin.role },
+  });
+});
+
+export const me = asyncHandler(async (req, res) => {
+  res.json({
+    id: req.admin._id,
+    name: req.admin.name,
+    email: req.admin.email,
+    role: req.admin.role,
+  });
+});
+
+export const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Both current and new password are required' });
   }
-}
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
 
-export default { signup, login };
+  const match = await req.admin.verifyPassword(currentPassword);
+  if (!match) return res.status(401).json({ error: 'Current password is incorrect' });
+
+  await req.admin.setPassword(newPassword);
+  await req.admin.save();
+
+  res.json({ ok: true });
+});
