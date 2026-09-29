@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 
 /**
  * Spins up a throwaway MongoDB for local development and CI.
@@ -9,6 +8,9 @@ let memoryServer;
 
 export async function connectDB(uri) {
   if (uri) return mongoose.connect(uri);
+
+  // loaded on demand so a production install that omits devDependencies still boots
+  const { MongoMemoryServer } = await import('mongodb-memory-server');
 
   memoryServer = await MongoMemoryServer.create({
     instance: { dbName: 'tasty_bites' },

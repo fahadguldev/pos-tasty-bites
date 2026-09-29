@@ -32,6 +32,18 @@ app.use(
 );
 app.use(express.json({ limit: '8mb' }));
 
+// on a long-lived server this is already resolved by the time the first request
+// arrives; on serverless it is what connects MongoDB during the cold start
+app.use((req, res, next) => {
+  bootstrap().then(
+    () => next(),
+    (err) => {
+      console.error('Startup failed:', err);
+      if (!res.headersSent) res.status(503).json({ error: 'Service unavailable' });
+    }
+  );
+});
+
 // stops someone hammering the login and review endpoints
 app.use(
   '/api',
@@ -71,9 +83,23 @@ if (!process.env.JWT_SECRET) {
 
 initCloudinary();
 
-export async function bootstrap() {
-  await connectDB(process.env.MONGODB_URI);
-  console.log('MongoDB connected');
+let bootPromise;
+
+export function bootstrap() {
+  if (!bootPromise) {
+    bootPromise = start().catch((err) => {
+      bootPromise = undefined;
+      throw err;
+    });
+  }
+  return bootPromise;
+}
+
+async function start() {
+  if (mongoose.connection.readyState !== 1) {
+    await connectDB(process.env.MONGODB_URI);
+    console.log('MongoDB connected');
+  }
 
   // the in-memory dev database starts empty, so fill it with the demo menu
   if (!process.env.MONGODB_URI && process.env.AUTO_SEED !== 'false') {
