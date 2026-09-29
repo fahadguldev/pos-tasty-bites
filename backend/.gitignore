@@ -4,3 +4,7 @@ node_modules
 *.log
 dist
 .DS_Store
+
+# the signed-in whatsapp session. this is as sensitive as a password, because
+# anyone holding it can send as the business number.
+.broadcast-session

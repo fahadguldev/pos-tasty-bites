@@ -645,6 +645,10 @@ async function run() {
   check('a deal job appears only after the reply', !!dealJob);
   check('the deal is still waiting to be sent', dealJob?.status === 'queued');
   check('the deal message carries the deal price', /Rs/.test(dealJob?.variant || ''), dealJob?.variant);
+  check(
+    'the contact is remembered as having asked for it',
+    (await Contact.findOne({ phone: claimed.phone }))?.qualifiedAt > new Date(Date.now() - 60000)
+  );
 
   const replyAgain = await handleInbound({ from: claimed.phone, text: 'yes' });
   check('a second yes does not queue a second deal', replyAgain.action === 'already_queued', JSON.stringify(replyAgain));
@@ -729,6 +733,72 @@ async function run() {
   const deleted = await api(`/admin/campaigns/${campaignId}`, { method: 'DELETE', token });
   check('a cancelled campaign can be deleted', deleted.status === 204);
   check('deleting a campaign removes its jobs', (await SendJob.countDocuments({ campaign: campaignId })) === 0);
+
+  console.log('\n--- whatsapp connection ---');
+  const whatsappStatus = await import('./services/whatsappStatus.js');
+  const { toChatId, fromChatId, eventData } = await import('./services/openwaTransport.js');
+
+  check('a phone number becomes a whatsapp chat id', toChatId('03001234567') === '923001234567@c.us', toChatId('03001234567'));
+  check('a chat id becomes a phone number again', fromChatId('923001234567@c.us') === '923001234567');
+  check('a number with spaces and dashes still works', toChatId('0300-123 4567') === '923001234567@c.us');
+  check('an empty recipient is refused', (() => { try { toChatId(''); return false; } catch { return true; } })());
+
+  // Real payloads captured from a live open-wa client. Reading the wrong level
+  // here loses the QR code and every state change without throwing anything,
+  // which is exactly how it failed while 200-odd other checks were passing.
+  const qrEvent = { correlationId: 'qr-wait', ts: 1790708343396, step: 'qr_generated', details: { qr: 'https://wa.me/settings/linked_devices#2@1aHEB', attemptInThisCycle: 1 } };
+  check('a QR code is found inside the step event', eventData(qrEvent).qr === 'https://wa.me/settings/linked_devices#2@1aHEB');
+
+  const stateEvent = { correlationId: 'system', ts: 1790708320082, step: 'state_change', details: { prev: 'DISCONNECTED', next: 'READY' } };
+  check('a state change is found inside the step event', eventData(stateEvent).next === 'READY');
+
+  const logoutEvent = { correlationId: 'system', ts: 1790708320082, step: 'state_change', details: { prev: 'READY', next: 'DISCONNECTED', reason: 'signed out' } };
+  check('a logout reason is found inside the step event', eventData(logoutEvent).reason === 'signed out');
+
+  const messageEvent = { ctx: { correlationId: 'x' }, message: { id: 'wamid.1', chatId: '923001234567@c.us', body: 'Yes' } };
+  check('a message is read from the top level', eventData(messageEvent).message.body === 'Yes');
+  check('an empty payload does not throw', Object.keys(eventData(undefined)).length === 0);
+
+  // open-wa's own state names are internal, so they are translated before the
+  // admin ever sees them
+  check('a QR code means the screen should wait for a scan', whatsappStatus.describeStatus('AUTHENTICATING', { qr: '2@abc' }).status === 'awaiting_scan');
+  check('a signed-in session reads as ready', whatsappStatus.describeStatus('READY', { ready: true }).status === 'ready');
+  // a working session must not be shown as broken by a stale reason string
+  check('a live session is not shown as broken by an old error', whatsappStatus.describeStatus('READY', { ready: true, lastError: 'reconnecting' }).status === 'ready');
+  check('a failure with no live session is an error', whatsappStatus.describeStatus('STOPPED', { lastError: 'boom' }).status === 'error');
+  check('a brand new client reads as offline', whatsappStatus.describeStatus('UNLAUNCHED').status === 'offline');
+
+  const stale = new Date(Date.now() - 10 * 60 * 1000);
+  const expired = whatsappStatus.describeStatus('AUTHENTICATING', { qr: '2@abc', qrIssuedAt: stale });
+  check('an old QR code is not shown as scannable', expired.qr === '' && expired.qrExpired === true);
+
+  const statusRes = await api('/admin/whatsapp/status', { token });
+  check('the whatsapp status is readable', statusRes.status === 200, statusRes.body?.error);
+  check('no worker means the status is offline', statusRes.body?.status === 'offline', statusRes.body?.status);
+  check('the status says sending is switched off', statusRes.body?.sendEnabled === false);
+  check('the status says how to start the worker', statusRes.body?.startCommand === 'npm run worker');
+
+  const badTest = await api('/admin/whatsapp/test', { method: 'POST', token, body: { phone: '123' } });
+  check('a test message to an invalid number is refused', badTest.status === 400);
+
+  const earlyTest = await api('/admin/whatsapp/test', { method: 'POST', token, body: { phone: '03001234567' } });
+  check('a test message before connecting is refused', earlyTest.status === 409, earlyTest.body?.error);
+
+  // the browser lives in the worker, so the admin can only leave a note for it
+  await api('/admin/whatsapp/logout', { method: 'POST', token });
+  check('the admin can ask the worker to sign out', (await whatsappStatus.takeCommand()) === 'logout');
+  check('a note is only acted on once', (await whatsappStatus.takeCommand()) === '');
+
+  await whatsappStatus.requestCommand('test:923001234567');
+  await whatsappStatus.recordTestResult({ phone: '923001234567', ok: true });
+  const testState = await whatsappStatus.readStatus();
+  check('the worker reports a successful test message', testState.lastTest?.ok === true && testState.lastTest?.phone === '923001234567');
+  check('a test message does not make the session look connected', testState.ready === false);
+
+  const draft = await Campaign.create({ name: 'Never started', openerTemplate: 'hi', dealTemplate: 'deal' });
+  const resumeDraft = await api(`/admin/campaigns/${draft._id}/resume`, { method: 'POST', token });
+  check('a campaign that was never paused cannot resume', resumeDraft.status === 409, `status ${resumeDraft.status}`);
+  await draft.deleteOne();
 
   console.log('\n--- housekeeping ---');
   const del = await api(`/admin/products/${newProduct.body._id}`, { method: 'DELETE', token });

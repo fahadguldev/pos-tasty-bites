@@ -51,11 +51,21 @@ export const list = asyncHandler(async (req, res) => {
     .limit(PAGE_SIZE)
     .lean({ virtuals: true });
 
+  // the whole-list counts, so the admin can see how many people a campaign could
+  // reach without having to page through the list
+  const now = new Date();
+  const [all, optedOut, snoozed] = await Promise.all([
+    Contact.countDocuments({}),
+    Contact.countDocuments({ optOut: true }),
+    Contact.countDocuments({ optOut: false, doNotContactUntil: { $gt: now } }),
+  ]);
+
   res.json({
     contacts,
     total,
     page,
     pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    summary: { total: all, contactable: all - optedOut - snoozed, optedOut, snoozed },
   });
 });
 

@@ -13,6 +13,7 @@ import * as settings from '../controllers/settingsController.js';
 import * as upload from '../controllers/uploadController.js';
 import * as contacts from '../controllers/contactController.js';
 import * as campaigns from '../controllers/campaignController.js';
+import * as whatsapp from '../controllers/whatsappController.js';
 
 const router = Router();
 
@@ -102,5 +103,11 @@ router.get('/admin/campaigns/:id/messages', requireAdmin, campaigns.messages);
 router.get('/admin/campaigns/:id', requireAdmin, campaigns.getOne);
 router.put('/admin/campaigns/:id', requireAdmin, campaigns.update);
 router.delete('/admin/campaigns/:id', requireAdmin, campaigns.remove);
+
+// the browser session lives in the worker, so these only read its state and
+// leave instructions for it
+router.get('/admin/whatsapp/status', requireAdmin, whatsapp.status);
+router.post('/admin/whatsapp/test', requireAdmin, whatsapp.sendTest);
+router.post('/admin/whatsapp/logout', requireAdmin, whatsapp.logout);
 
 export default router;

@@ -61,7 +61,7 @@ let cached = null;
  * The open-wa adapter is imported lazily so that a normal test run or a plain API
  * boot never pulls in Chromium, Puppeteer or the WhatsApp client at all.
  */
-export async function getTransport() {
+export async function getTransport({ onStatus } = {}) {
   if (cached) return cached;
 
   const name = (process.env.WHATSAPP_TRANSPORT || '').trim().toLowerCase();
@@ -84,7 +84,7 @@ export async function getTransport() {
       );
     }
     const { createOpenWaTransport } = await import('./openwaTransport.js');
-    cached = await createOpenWaTransport();
+    cached = await createOpenWaTransport({ onStatus });
     return cached;
   }
 
