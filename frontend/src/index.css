@@ -1,1 +1,196 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme {
+  /* brand — warm, appetising orange taken from the "tasty" in the name */
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
+  --color-brand-200: #fed7aa;
+  --color-brand-300: #fdba74;
+  --color-brand-400: #fb923c;
+  --color-brand-500: #f97316;
+  --color-brand-600: #ea580c;
+  --color-brand-700: #c2410c;
+  --color-brand-800: #9a3412;
+  --color-brand-900: #7c2d12;
+
+  /* supporting accent for deals and savings */
+  --color-berry-500: #e11d48;
+  --color-berry-600: #be123c;
+
+  /* WhatsApp green — the primary order action across the storefront */
+  --color-wa-50: #f0fdf4;
+  --color-wa-100: #dcfce7;
+  --color-wa-500: #25d366;
+  --color-wa-600: #1eb455;
+  --color-wa-700: #179148;
+
+  /* neutral ramp, slightly warm so it sits with the orange */
+  --color-ink-50: #fafaf9;
+  --color-ink-100: #f5f5f4;
+  --color-ink-200: #e7e5e4;
+  --color-ink-300: #d6d3d1;
+  --color-ink-400: #a8a29e;
+  --color-ink-500: #78716c;
+  --color-ink-600: #57534e;
+  --color-ink-700: #44403c;
+  --color-ink-800: #292524;
+  --color-ink-900: #1c1917;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Poppins', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1rem;
+
+  --shadow-soft: 0 1px 2px rgb(28 25 23 / 0.04), 0 8px 24px -12px rgb(28 25 23 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(28 25 23 / 0.05), 0 16px 40px -16px rgb(28 25 23 / 0.24);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-800 font-sans antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight text-ink-900;
+  }
+
+  /* one consistent focus ring everywhere, visible on both light and dark */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-600;
+  }
+
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
+  }
+}
+
+/* `btn` and the size steps are registered as real utilities so component
+   classes below can @apply them (Tailwind 4 disallows @apply of plain classes) */
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold
+         transition duration-150 select-none whitespace-nowrap
+         disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98];
+}
+
+@utility btn-sm {
+  @apply h-9 px-3 text-sm;
+}
+
+@utility btn-md {
+  @apply h-11 px-5 text-sm;
+}
+
+@utility btn-lg {
+  @apply h-13 px-7 text-base;
+}
+
+@utility chip {
+  @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-ink-200/80 shadow-soft;
+  }
+
+  .card-hover {
+    @apply transition duration-200 hover:shadow-lift hover:-translate-y-0.5;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 shadow-sm;
+  }
+
+  .btn-dark {
+    @apply btn bg-ink-900 text-white hover:bg-ink-800 shadow-sm;
+  }
+
+  .btn-outline {
+    @apply btn border border-ink-300 bg-white text-ink-800 hover:border-ink-400 hover:bg-ink-50;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-600 hover:bg-ink-100 hover:text-ink-900;
+  }
+
+  .btn-danger {
+    @apply btn bg-berry-600 text-white hover:bg-berry-500;
+  }
+
+  .btn-wa {
+    @apply btn bg-wa-600 text-white shadow-sm hover:bg-wa-700;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-ink-300 bg-white px-3.5 py-2.5 text-sm text-ink-900
+           placeholder:text-ink-400 transition
+           focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 focus:outline-none
+           disabled:bg-ink-100 disabled:text-ink-500;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-ink-700 mb-1.5;
+  }
+
+  .badge {
+    @apply chip bg-brand-100 text-brand-800;
+  }
+
+  .badge-berry {
+    @apply chip bg-berry-500 text-white;
+  }
+
+  .badge-muted {
+    @apply chip bg-ink-100 text-ink-600;
+  }
+
+  .table-wrap {
+    @apply overflow-x-auto rounded-2xl border border-ink-200 bg-white;
+  }
+
+  .th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-ink-500 whitespace-nowrap;
+  }
+
+  .td {
+    @apply px-4 py-3.5 text-sm text-ink-700 align-middle;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-xl bg-ink-200/70;
+  }
+}
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* horizontal category rail on mobile */
+  .rail {
+    @apply flex gap-3 overflow-x-auto snap-x snap-mandatory pb-1;
+  }
+
+  .rail > * {
+    @apply snap-start shrink-0;
+  }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.animate-rise {
+  animation: rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
