@@ -8,6 +8,11 @@ process.env.MONGODB_URI = '';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'smoke_test_secret_not_for_production';
 process.env.AUTO_SEED = 'false';
 
+// the campaign tests use the fake transport, which records messages instead of
+// sending them. no real number is involved at any point in this run.
+process.env.WHATSAPP_TRANSPORT = 'fake';
+process.env.WHATSAPP_SEND_ENABLED = 'false';
+
 const mongoose = (await import('mongoose')).default;
 const { connectDB, disconnectDB } = await import('./config/db.js');
 const { seed } = await import('./seed/seed.js');
@@ -394,6 +399,337 @@ async function run() {
   check('paused shop refuses new orders', blocked.status === 503, blocked.body?.error);
   await api('/admin/settings', { method: 'PUT', token, body: { acceptingOrders: true, deliveryFee: 100, minOrderValue: 400 } });
 
+  console.log('\n--- contacts ---');
+  const contactsNoAuth = await api('/admin/contacts');
+  check('contact list is admin only', contactsNoAuth.status === 401);
+
+  const preview = await api('/admin/contacts/backfill/preview', { token });
+  check('backfill preview works without writing', preview.status === 200);
+  check('backfill preview reports what it would create', Array.isArray(preview.body?.toCreate));
+  check(
+    'demo seed numbers are never queued as contacts',
+    (preview.body?.toCreate || []).every((c) => !/(\d)\1{4,}/.test(c.phone)),
+    'a placeholder number was queued'
+  );
+  check(
+    'the shop’s own whatsapp number is never queued',
+    (preview.body?.toCreate || []).every((c) => c.phone !== '923001234567')
+  );
+  check(
+    'the shop’s own number is skipped even when it has ordered',
+    (preview.body?.skipped || []).some((s) => s.phone === '923001234567'),
+    'the shop number was queued'
+  );
+  check(
+    'preview finds the customers who really ordered',
+    (preview.body?.toCreate || []).some((c) => c.phone === '923002234567'),
+    'the real order customer was missing'
+  );
+  check('nothing is written before applying', (await ContactCount()) === 0);
+
+  const applied = await api('/admin/contacts/backfill', { method: 'POST', token });
+  check('backfill applies', applied.status === 200, applied.body?.error);
+  check('backfill created the ordering customers', applied.body?.created >= 2, `created ${applied.body?.created}`);
+
+  const again = await api('/admin/contacts/backfill', { method: 'POST', token });
+  check('running the backfill twice does not duplicate', again.body?.created === 0, `created ${again.body?.created}`);
+
+  const backfilled = await api('/admin/contacts?q=Fatima', { token });
+  check('backfilled contact keeps the order history', backfilled.body?.contacts?.[0]?.orderCount >= 1, `orderCount ${backfilled.body?.contacts?.[0]?.orderCount}`);
+  check('backfilled contact is marked as coming from an order', backfilled.body?.contacts?.[0]?.source === 'order');
+
+  const contactList = await api('/admin/contacts', { token });
+  check('contact list loads', contactList.status === 200 && Array.isArray(contactList.body?.contacts));
+  check('contact list is paginated', typeof contactList.body?.total === 'number');
+
+  const badContactPhone = await api('/admin/contacts', { method: 'POST', token, body: { name: 'Test', phone: '123' } });
+  check('contact with a malformed number is rejected', badContactPhone.status === 400, badContactPhone.body?.error);
+
+  const demoPhone = await api('/admin/contacts', { method: 'POST', token, body: { name: 'Ahmed Raza', phone: '923001111111' } });
+  check('contact with a demo number is rejected', demoPhone.status === 400, demoPhone.body?.error);
+
+  const noName = await api('/admin/contacts', { method: 'POST', token, body: { name: '', phone: '03009988887' } });
+  check('contact without a name is rejected', noName.status === 400);
+
+  const added = await api('/admin/contacts', { method: 'POST', token, body: { name: 'Walk-in Regular', phone: '0300-9988881' } });
+  check('a contact can be added by hand', added.status === 201, added.body?.error);
+  check('the number is stored normalised', added.body?.phone === '923009988881', `got ${added.body?.phone}`);
+
+  const dupe = await api('/admin/contacts', { method: 'POST', token, body: { name: 'Someone Else', phone: '03009988881' } });
+  check('the same number cannot be added twice', dupe.status === 409, dupe.body?.error);
+
+  const contactId = added.body?._id;
+  const optedOut = await api(`/admin/contacts/${contactId}`, { method: 'PUT', token, body: { optOut: true } });
+  check('a contact can be opted out', optedOut.body?.optOut === true);
+  check('an opted-out contact is not contactable', optedOut.body?.isContactable === false);
+
+  const contactable = await api('/admin/contacts?filter=contactable', { token });
+  check(
+    'opted-out contacts are hidden from the contactable filter',
+    !contactable.body.contacts.some((c) => c._id === contactId)
+  );
+
+  const optedOutList = await api('/admin/contacts?filter=optedOut', { token });
+  check('opted-out contacts are still listed for review', optedOutList.body.contacts.some((c) => c._id === contactId));
+
+  const searched = await api('/admin/contacts?q=Walk-in', { token });
+  check('contacts can be searched by name', searched.body.contacts.some((c) => c._id === contactId));
+
+  const delContact = await api(`/admin/contacts/${contactId}`, { method: 'DELETE', token });
+  check('a contact can be deleted', delContact.status === 204);
+
+  const gone = await api(`/admin/contacts/${contactId}`, { token });
+  check('a deleted contact returns 404', gone.status === 404);
+
+  console.log('\n--- campaign engine ---');
+  const transportApi = await import('./services/transport.js');
+  const { renderTemplate, validateTemplate, variationCount } = await import('./services/template.js');
+  const { classifyReply, handleInbound } = await import('./services/inbound.js');
+  const sending = await import('./services/sending.js');
+  const Contact = (await import('./models/Contact.js')).default;
+  const SendJob = (await import('./models/SendJob.js')).default;
+  const Campaign = (await import('./models/Campaign.js')).default;
+
+  // ---- the send gate comes first: nothing may send by accident ----
+  transportApi.resetTransport();
+  const savedTransport = process.env.WHATSAPP_TRANSPORT;
+  delete process.env.WHATSAPP_TRANSPORT;
+  let sendGateBlocked = false;
+  try {
+    await transportApi.getTransport();
+  } catch (err) {
+    sendGateBlocked = err instanceof transportApi.SendDisabledError;
+  }
+  check('sending is refused when no transport is configured', sendGateBlocked);
+
+  process.env.WHATSAPP_TRANSPORT = 'openwa';
+  process.env.WHATSAPP_SEND_ENABLED = 'false';
+  transportApi.resetTransport();
+  let openwaBlocked = false;
+  try {
+    await transportApi.getTransport();
+  } catch {
+    openwaBlocked = true;
+  }
+  check('open-wa stays blocked without the send flag', openwaBlocked);
+
+  process.env.WHATSAPP_TRANSPORT = savedTransport;
+  transportApi.resetTransport();
+  const transport = await transportApi.getTransport();
+  check('the test run uses the fake transport', transport.name === 'fake');
+
+  // ---- message wording ----
+  const sample = { name: 'Ahmed Raza', phone: '923001234567', area: 'Civil Colony' };
+  const first = renderTemplate('{{spin:Hi|Hey|Hello}} {{name}}', { contact: sample });
+  const repeat = renderTemplate('{{spin:Hi|Hey|Hello}} {{name}}', { contact: sample });
+  check('the same customer always gets the same wording', first === repeat, `${first} vs ${repeat}`);
+  check('a spin resolves to one real option', ['Hi', 'Hey', 'Hello'].includes(first.split(' ')[0]), first);
+  check('the name is substituted', first.endsWith('Ahmed'), first);
+
+  const crowd = Array.from({ length: 20 }, (_, i) => ({ name: `Guest ${i}`, phone: `9231${String(i).padStart(9, '0')}` }));
+  const wordings = new Set(crowd.map((c) => renderTemplate('{{spin:Hi|Hey|Hello}}', { contact: c })));
+  check('different customers get varied wording', wordings.size > 1, `${wordings.size} distinct wordings`);
+
+  check('an unknown token is reported', validateTemplate('hello {{nope}}').length > 0);
+  check('a spin with one option is reported', validateTemplate('{{spin:Hi}}').length > 0);
+  check('a valid template reports no problems', validateTemplate('{{spin:Hi|Hey}} {{name}}').length === 0);
+  check('the number of possible wordings is reported', variationCount('{{spin:a|b}} {{spin:c|d}}') === 4);
+
+  // ---- replies are understood before any number exists ----
+  const optionSet = [
+    { id: 'yes', label: 'Yes please', action: 'send_deal' },
+    { id: 'later', label: 'Not now', action: 'snooze', snoozeDays: 30 },
+    { id: 'stop', label: 'Stop', action: 'stop' },
+  ];
+  check('a tapped button decides the action', classifyReply({ buttonId: 'stop', options: optionSet }).action === 'stop');
+  check('STOP is permanent', classifyReply({ text: 'STOP', options: optionSet }).action === 'stop');
+  check('a plain no is only a pause', classifyReply({ text: 'no', options: optionSet }).action === 'snooze');
+  check('yes asks for the deal', classifyReply({ text: 'yes please', options: optionSet }).action === 'send_deal');
+  check('unclear text is ignored', classifyReply({ text: 'hmm', options: optionSet }).action === 'ignore');
+
+  // ---- a campaign ----
+  const noCampaignAuth = await api('/admin/campaigns');
+  check('campaign routes are admin only', noCampaignAuth.status === 401);
+
+  const badTokenCampaign = await api('/admin/campaigns', {
+    method: 'POST',
+    token,
+    body: { name: 'Broken', openerTemplate: 'hi', dealTemplate: '{{nope}}' },
+  });
+  check('a campaign with an unknown token is rejected', badTokenCampaign.status === 400, badTokenCampaign.body?.error);
+
+  const tooManyButtons = await api('/admin/campaigns', {
+    method: 'POST',
+    token,
+    body: {
+      name: 'Too many',
+      openerTemplate: 'hi',
+      dealTemplate: 'deal',
+      options: [
+        { id: 'a', label: 'A', action: 'send_deal' },
+        { id: 'b', label: 'B', action: 'snooze' },
+        { id: 'c', label: 'C', action: 'stop' },
+        { id: 'd', label: 'D', action: 'stop' },
+      ],
+    },
+  });
+  check('a campaign cannot carry more than three buttons', tooManyButtons.status === 400, tooManyButtons.body?.error);
+
+  // two extra customers, so the campaign has a known audience to pick from
+  await api('/admin/contacts', { method: 'POST', token, body: { name: 'Walk-in One', phone: '03011122233' } });
+  await api('/admin/contacts', { method: 'POST', token, body: { name: 'Walk-in Two', phone: '03011133344' } });
+
+  const created = await api('/admin/campaigns', {
+    method: 'POST',
+    token,
+    body: {
+      name: 'Midweek deals',
+      deal: deal._id,
+      sendImage: true,
+      openerTemplate: '{{spin:Hi|Hey|Hello}} {{name}}, {{shopName}} has a new deal out. Want the details?',
+      dealTemplate: 'Here it is: {{deal}} at {{dealPrice}}. {{dealSaving}} Order here: {{dealLink}}',
+      recipientLimit: 3,
+      gap: { minSeconds: 2, maxSeconds: 4 },
+      options: optionSet,
+    },
+  });
+  check('a campaign can be created', created.status === 201, created.body?.error);
+  const campaignId = created.body?._id;
+  check('a new campaign starts as a draft', created.body?.status === 'draft');
+  check('the chosen recipient count is stored', created.body?.recipientLimit === 3);
+  check('the pause between messages is stored', created.body?.gap?.minSeconds === 2);
+
+  const previewRes = await api(`/admin/campaigns/${campaignId}/preview`, { token });
+  check('a campaign can be previewed', previewRes.status === 200, previewRes.body?.error);
+  check('the preview reports who will be messaged', typeof previewRes.body?.audience?.willSend === 'number');
+  check('the preview renders real customers', (previewRes.body?.openerSamples || []).length > 0);
+  check('the preview finds no template problems', (previewRes.body?.openerProblems || []).length === 0);
+  check('the preview respects the chosen number', previewRes.body?.audience?.willSend === 3, `willSend ${previewRes.body?.audience?.willSend}`);
+  check('the preview knows the chosen number', previewRes.body?.audience?.recipientLimit === 3);
+
+  // ---- starting the campaign queues exactly what the admin asked for ----
+  const started = await api(`/admin/campaigns/${campaignId}/start`, { method: 'POST', token });
+  check('a campaign can be started', started.status === 200, started.body?.error);
+  check('starting queues exactly the chosen number', started.body?.queued === 3, `queued ${started.body?.queued}`);
+  check('the campaign is now running', started.body?.campaign?.status === 'running');
+
+  const restart = await api(`/admin/campaigns/${campaignId}/start`, { method: 'POST', token });
+  check('a running campaign cannot be started again', restart.status === 409);
+
+  const queuedJobs = await SendJob.find({ campaign: campaignId, stage: 'opener' });
+  check('every opener was rendered at queue time', queuedJobs.every((j) => j.variant && j.variant.length > 0));
+  check('every opener carries the quick-reply buttons', queuedJobs.every((j) => j.buttons.length === 3));
+  check('nobody was queued twice', new Set(queuedJobs.map((j) => j.phone)).size === queuedJobs.length);
+  check('no deal message exists yet', (await SendJob.countDocuments({ campaign: campaignId, stage: 'deal' })) === 0);
+
+  // ---- the worker sends one job at a time ----
+  const claimed = await sending.claimNextJob(campaignId);
+  check('a queued job can be claimed', !!claimed);
+  check('claiming marks the job as in flight', claimed?.status === 'sending');
+  check('claiming counts an attempt', claimed?.attempts === 1);
+
+  const secondJob = await sending.claimNextJob(campaignId);
+  check('the next claim is a different job', secondJob?._id?.toString() !== claimed?._id?.toString());
+  await sending.markSent(secondJob);
+
+  await transport.sendText({ to: claimed.phone, text: claimed.variant, buttons: claimed.buttons });
+  await sending.markSent(claimed);
+  check('a sent job is recorded', claimed.status === 'sent' && !!claimed.sentAt);
+  check('the transport recorded the exact stored wording', transport.sent[0]?.text === claimed.variant);
+
+  // ---- tapping Yes is the only path to the deal ----
+  const yesReply = await handleInbound({ from: claimed.phone, buttonId: 'yes' });
+  check('tapping Yes queues the deal', yesReply.action === 'deal_queued', JSON.stringify(yesReply));
+
+  const dealJob = await SendJob.findOne({ campaign: campaignId, phone: claimed.phone, stage: 'deal' });
+  check('a deal job appears only after the reply', !!dealJob);
+  check('the deal is still waiting to be sent', dealJob?.status === 'queued');
+  check('the deal message carries the deal price', /Rs/.test(dealJob?.variant || ''), dealJob?.variant);
+
+  const replyAgain = await handleInbound({ from: claimed.phone, text: 'yes' });
+  check('a second yes does not queue a second deal', replyAgain.action === 'already_queued', JSON.stringify(replyAgain));
+
+  // ---- STOP always wins ----
+  const stopped = await handleInbound({ from: secondJob.phone, text: 'STOP' });
+  check('STOP is understood', stopped.action === 'stopped', JSON.stringify(stopped));
+
+  const stoppedContact = await Contact.findOne({ phone: secondJob.phone });
+  check('STOP marks the contact as opted out', stoppedContact?.optOut === true);
+  check('an opted-out contact is no longer contactable', stoppedContact?.isContactable === false);
+  check(
+    'opting out never queues a deal',
+    !(await SendJob.findOne({ campaign: campaignId, phone: secondJob.phone, stage: 'deal' }))
+  );
+
+  // ---- "not now" pauses without blacklisting ----
+  const third = await sending.claimNextJob(campaignId);
+  check('the last opener is still waiting to be sent', third?.stage === 'opener', third?.stage);
+  await sending.markSent(third);
+  const snoozed = await handleInbound({ from: third.phone, text: 'not now' });
+  check('"not now" is understood', snoozed.action === 'snoozed', JSON.stringify(snoozed));
+
+  const snoozedContact = await Contact.findOne({ phone: third.phone });
+  check('"not now" does not opt anyone out', snoozedContact?.optOut === false);
+  check('"not now" pauses the contact for 30 days', snoozedContact?.doNotContactUntil > new Date());
+  check('"not now" never queues a deal', !(await SendJob.findOne({ campaign: campaignId, phone: third.phone, stage: 'deal' })));
+
+  // ---- a failed send is retried once, then parked ----
+  // runs on its own campaign so no other queued job can be claimed by mistake
+  const retryCampaign = await Campaign.create({
+    name: 'Retry check',
+    openerTemplate: 'hi {{name}}',
+    dealTemplate: 'the deal',
+    recipientLimit: 1,
+  });
+  const flaky = await SendJob.create({
+    campaign: retryCampaign._id,
+    contact: (await Contact.findOne({ phone: claimed.phone }))._id,
+    phone: '92310987654',
+    stage: 'opener',
+    status: 'queued',
+    variant: 'retry me',
+  });
+
+  const retryClaim = await sending.claimNextJob(retryCampaign._id);
+  check('the queued job can be claimed', retryClaim?.id === flaky.id);
+  await sending.markFailed(retryClaim, new Error('network down'));
+  check('a failed send goes back in the queue', retryClaim.status === 'queued', retryClaim.status);
+  check('the failure reason is recorded', /network down/.test(retryClaim.lastError));
+
+  const secondClaim = await sending.claimNextJob(retryCampaign._id);
+  check('the retried job is the same one', secondClaim?.id === flaky.id);
+  await sending.markFailed(secondClaim, new Error('network down again'));
+  check('a send that keeps failing is parked', secondClaim.status === 'failed', secondClaim.status);
+  check('a parked job is not picked up again', !(await sending.claimNextJob(retryCampaign._id)));
+
+  await retryCampaign.deleteOne();
+  await flaky.deleteOne();
+
+  // ---- history and controls ----
+  const history = await api(`/admin/campaigns/${campaignId}/messages`, { token });
+  check('the message history is recorded', history.status === 200 && history.body.total > 0, `total ${history.body?.total}`);
+  check('replies are logged too', history.body.entries.some((e) => e.direction === 'in'));
+
+  const editRunning = await api(`/admin/campaigns/${campaignId}`, { method: 'PUT', token, body: { name: 'Renamed' } });
+  check('a running campaign cannot be edited', editRunning.status === 409);
+
+  const paused = await api(`/admin/campaigns/${campaignId}/pause`, { method: 'POST', token });
+  check('a campaign can be paused', paused.body?.status === 'paused');
+  const resumed = await api(`/admin/campaigns/${campaignId}/resume`, { method: 'POST', token });
+  check('a paused campaign can resume', resumed.body?.status === 'running');
+
+  const deleteRunning = await api(`/admin/campaigns/${campaignId}`, { method: 'DELETE', token });
+  check('a running campaign cannot be deleted', deleteRunning.status === 409);
+
+  const cancelled = await api(`/admin/campaigns/${campaignId}/cancel`, { method: 'POST', token, body: { reason: 'test over' } });
+  check('a campaign can be cancelled', cancelled.body?.status === 'cancelled');
+  check('cancelling stops anything still waiting', (await SendJob.countDocuments({ campaign: campaignId, status: 'queued' })) === 0);
+  check('nothing is left to claim after cancelling', !(await sending.claimNextJob(campaignId)));
+
+  const deleted = await api(`/admin/campaigns/${campaignId}`, { method: 'DELETE', token });
+  check('a cancelled campaign can be deleted', deleted.status === 204);
+  check('deleting a campaign removes its jobs', (await SendJob.countDocuments({ campaign: campaignId })) === 0);
+
   console.log('\n--- housekeeping ---');
   const del = await api(`/admin/products/${newProduct.body._id}`, { method: 'DELETE', token });
   check('product can be deleted', del.status === 204);
@@ -410,4 +746,10 @@ async function login() {
     body: { email: 'admin@tastybites.pk', password: 'tastybites123' },
   });
   return res.body?.token;
+}
+
+// reads straight from the database so a test can prove a preview wrote nothing
+async function ContactCount() {
+  const { default: Contact } = await import('./models/Contact.js');
+  return Contact.countDocuments();
 }
