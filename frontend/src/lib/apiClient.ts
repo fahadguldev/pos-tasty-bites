@@ -2,10 +2,18 @@ import { http, unwrap } from './api';
 import type {
   AdminUser,
   AnalyticsOverview,
+  BackfillPreview,
+  BackfillResult,
+  Campaign,
+  CampaignDetail,
+  CampaignPreview,
   Category,
+  Contact,
+  ContactList,
   DailyPoint,
   Deal,
   Insights,
+  MessagePage,
   MonthlyResult,
   Order,
   OrderList,
@@ -17,9 +25,11 @@ import type {
   Review,
   ReviewBundle,
   Settings,
+  StartResult,
   TopDeals,
   TrackResult,
   UploadResult,
+  WhatsappConnection,
 } from './types';
 
 // ---------- public storefront ----------
@@ -166,3 +176,49 @@ export const uploadImage = (file: File) => {
 };
 
 export const getUploadStatus = () => unwrap<{ cloudinary: boolean }>(http.get('/upload/status'));
+
+// ---------- admin: contacts ----------
+
+export const getAdminContacts = (params: Record<string, string | number | undefined>) =>
+  unwrap<ContactList>(http.get('/admin/contacts', { params }));
+export const createContact = (body: unknown) => unwrap<Contact>(http.post('/admin/contacts', body));
+export const updateContact = (id: string, body: unknown) =>
+  unwrap<Contact>(http.put(`/admin/contacts/${id}`, body));
+export const deleteContact = (id: string) => http.delete(`/admin/contacts/${id}`);
+
+/** the backfill is two-step: look at exactly which numbers it would add first */
+export const previewBackfill = () => unwrap<BackfillPreview>(http.get('/admin/contacts/backfill/preview'));
+export const applyBackfill = () => unwrap<BackfillResult>(http.post('/admin/contacts/backfill'));
+
+// ---------- admin: campaigns ----------
+
+export const getAdminCampaigns = () => unwrap<Campaign[]>(http.get('/admin/campaigns'));
+export const getAdminCampaign = (id: string) => unwrap<CampaignDetail>(http.get(`/admin/campaigns/${id}`));
+export const createCampaign = (body: unknown) => unwrap<Campaign>(http.post('/admin/campaigns', body));
+export const updateCampaign = (id: string, body: unknown) =>
+  unwrap<Campaign>(http.put(`/admin/campaigns/${id}`, body));
+export const deleteCampaign = (id: string) => http.delete(`/admin/campaigns/${id}`);
+
+export const previewCampaign = (id: string) => unwrap<CampaignPreview>(http.get(`/admin/campaigns/${id}/preview`));
+
+/** limit is how many people to message, chosen by the admin. 0 means everyone. */
+export const startCampaign = (id: string, limit?: number) =>
+  unwrap<StartResult>(http.post(`/admin/campaigns/${id}/start`, { limit }));
+export const pauseCampaign = (id: string) => unwrap<Campaign>(http.post(`/admin/campaigns/${id}/pause`));
+export const resumeCampaign = (id: string) => unwrap<Campaign>(http.post(`/admin/campaigns/${id}/resume`));
+export const cancelCampaign = (id: string, reason?: string) =>
+  unwrap<Campaign>(http.post(`/admin/campaigns/${id}/cancel`, { reason }));
+export const getCampaignMessages = (id: string, page = 1, phone?: string) =>
+  unwrap<MessagePage>(http.get(`/admin/campaigns/${id}/messages`, { params: { page, phone } }));
+
+// ---------- admin: whatsapp connection ----------
+
+export const getWhatsappStatus = () => unwrap<WhatsappConnection>(http.get('/admin/whatsapp/status'));
+
+/** one message to one number, sent by the worker. never touches a contact. */
+export const sendWhatsappTest = (phone: string) =>
+  unwrap<{ ok: boolean; phone: string; note: string }>(http.post('/admin/whatsapp/test', { phone }));
+
+/** signs out and clears the stored session so a different number can be paired */
+export const logoutWhatsapp = () =>
+  unwrap<{ ok: boolean; note: string }>(http.post('/admin/whatsapp/logout'));

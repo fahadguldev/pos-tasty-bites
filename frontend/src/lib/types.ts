@@ -369,3 +369,167 @@ export interface UploadResult {
   url: string;
   publicId: string;
 }
+
+// ---------- whatsapp campaigns ----------
+
+export type CampaignStatus = 'draft' | 'scheduled' | 'running' | 'paused' | 'completed' | 'cancelled';
+
+export type OptionAction = 'send_deal' | 'snooze' | 'stop';
+
+export interface CampaignOption {
+  id: string;
+  label: string;
+  action: OptionAction;
+  snoozeDays: number;
+}
+
+export interface CampaignStats {
+  recipients: number;
+  openersSent: number;
+  qualified: number;
+  dealsSent: number;
+  snoozed: number;
+  optedOut: number;
+  failed: number;
+}
+
+export interface Campaign {
+  _id: string;
+  name: string;
+  deal: string | null;
+  openerTemplate: string;
+  dealTemplate: string;
+  options: CampaignOption[];
+  sendImage: boolean;
+  recipientLimit: number;
+  gap: { minSeconds: number; maxSeconds: number };
+  status: CampaignStatus;
+  startedAt: string | null;
+  completedAt: string | null;
+  pausedAt: string | null;
+  cancelReason: string;
+  stats: CampaignStats;
+  replyRate: number | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Audience {
+  total: number;
+  contactable: number;
+  willSend: number;
+  recipientLimit: number;
+  skipped?: number;
+  reason?: string;
+}
+
+export interface CampaignPreview {
+  audience: Audience;
+  openerProblems: string[];
+  dealProblems: string[];
+  openerVariations: number;
+  dealVariations: number;
+  openerSamples: { phone: string; name: string; text: string }[];
+  dealSamples: { phone: string; name: string; text: string }[];
+  deal: { name: string; price: number; image: string } | null;
+}
+
+export interface CampaignDetail extends Campaign {
+  audience: Audience;
+  pending: number;
+}
+
+export interface StartResult {
+  queued: number;
+  duplicates: number;
+  reason: string;
+  campaign: Campaign;
+}
+
+export interface MessageEntry {
+  _id: string;
+  phone: string;
+  direction: 'in' | 'out';
+  stage: 'opener' | 'deal' | 'system';
+  kind: string;
+  body: string;
+  imageUrl: string;
+  error: string;
+  createdAt: string;
+}
+
+export interface MessagePage {
+  entries: MessageEntry[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+// ---------- contacts ----------
+
+export interface Contact {
+  _id: string;
+  name: string;
+  phone: string;
+  area: string;
+  notes: string;
+  source: 'order' | 'import' | 'manual';
+  consentSource: string;
+  consentedAt: string | null;
+  optOut: boolean;
+  optedOutAt: string | null;
+  doNotContactUntil: string | null;
+  qualifiedAt: string | null;
+  tags: string[];
+  orderCount: number;
+  firstOrderAt: string | null;
+  lastOrderAt: string | null;
+  totalSpent: number;
+  lastKnownAddress: string;
+  lastKnownArea: string;
+  isContactable: boolean;
+  createdAt: string;
+}
+
+export interface ContactList {
+  contacts: Contact[];
+  total: number;
+  page: number;
+  pages: number;
+  summary: { total: number; contactable: number; optedOut: number; snoozed: number };
+}
+
+export interface BackfillPreview {
+  scannedOrders: number;
+  existingContacts: number;
+  toCreate: { phone: string; name: string; orderCount: number }[];
+  toUpdate: string[];
+  skipped: { phone: string; name: string; reason: string }[];
+}
+
+export interface BackfillResult {
+  created: number;
+  updated: number;
+  skipped: { phone: string; name: string; reason: string }[];
+}
+
+// ---------- whatsapp connection ----------
+
+export type WhatsappStatus = 'offline' | 'starting' | 'awaiting_scan' | 'scanning' | 'ready' | 'error' | 'stopped';
+
+export interface WhatsappConnection {
+  status: WhatsappStatus;
+  ready: boolean;
+  qr: string;
+  qrExpired: boolean;
+  qrIssuedAt: string | null;
+  number: string;
+  lastError: string;
+  sessionId: string;
+  sendEnabled: boolean;
+  transport: string;
+  startCommand: string;
+  heartbeatAt: string | null;
+  lastTest: { phone: string; ok: boolean; error: string; at: string | null };
+}

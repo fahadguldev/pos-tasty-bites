@@ -8,6 +8,8 @@ import {
   ClipboardIcon,
   GearIcon,
   LogoutIcon,
+  PhoneIcon,
+  SendIcon,
   StarReviewIcon,
   TagIcon,
 } from '../../components/ui/Icons';
@@ -19,6 +21,8 @@ const nav = [
   { to: '/admin/deals', label: 'Deals', icon: TagIcon },
   { to: '/admin/reviews', label: 'Reviews', icon: StarReviewIcon },
   { to: '/admin/analytics', label: 'Analytics', icon: ChartIcon },
+  { to: '/admin/contacts', label: 'Customers', icon: PhoneIcon },
+  { to: '/admin/campaigns', label: 'Campaigns', icon: SendIcon },
   { to: '/admin/settings', label: 'Settings', icon: GearIcon },
 ];
 
