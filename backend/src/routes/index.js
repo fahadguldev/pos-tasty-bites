@@ -11,6 +11,8 @@ import * as reviews from '../controllers/reviewController.js';
 import * as analytics from '../controllers/analyticsController.js';
 import * as settings from '../controllers/settingsController.js';
 import * as upload from '../controllers/uploadController.js';
+import * as contacts from '../controllers/contactController.js';
+import * as campaigns from '../controllers/campaignController.js';
 
 const router = Router();
 
@@ -80,5 +82,25 @@ router.get('/admin/analytics/insights', requireAdmin, analytics.insights);
 router.get('/admin/settings', requireAdmin, settings.getAdmin);
 router.put('/admin/settings', requireAdmin, settings.update);
 router.post('/admin/settings/seed-payment-methods', requireAdmin, settings.seedPaymentMethods);
+
+router.get('/admin/contacts', requireAdmin, contacts.list);
+router.get('/admin/contacts/backfill/preview', requireAdmin, contacts.backfillPreview);
+router.post('/admin/contacts/backfill', requireAdmin, contacts.backfillApply);
+router.get('/admin/contacts/:id', requireAdmin, contacts.getOne);
+router.post('/admin/contacts', requireAdmin, contacts.create);
+router.put('/admin/contacts/:id', requireAdmin, contacts.update);
+router.delete('/admin/contacts/:id', requireAdmin, contacts.remove);
+
+router.get('/admin/campaigns', requireAdmin, campaigns.list);
+router.post('/admin/campaigns', requireAdmin, campaigns.create);
+router.get('/admin/campaigns/:id/preview', requireAdmin, campaigns.preview);
+router.post('/admin/campaigns/:id/start', requireAdmin, campaigns.start);
+router.post('/admin/campaigns/:id/pause', requireAdmin, campaigns.pause);
+router.post('/admin/campaigns/:id/resume', requireAdmin, campaigns.resume);
+router.post('/admin/campaigns/:id/cancel', requireAdmin, campaigns.cancel);
+router.get('/admin/campaigns/:id/messages', requireAdmin, campaigns.messages);
+router.get('/admin/campaigns/:id', requireAdmin, campaigns.getOne);
+router.put('/admin/campaigns/:id', requireAdmin, campaigns.update);
+router.delete('/admin/campaigns/:id', requireAdmin, campaigns.remove);
 
 export default router;
