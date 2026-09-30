@@ -35,6 +35,10 @@ const ContactSchema = new mongoose.Schema(
     // "not right now" on a campaign. temporary, unlike optOut.
     doNotContactUntil: { type: Date, default: null },
 
+    // when this person asked for a deal, so a later campaign can go straight to
+    // someone who already said yes
+    qualifiedAt: { type: Date, default: null },
+
     tags: { type: [String], default: [] },
 
     // order history, so the admin can see who the repeat customers are

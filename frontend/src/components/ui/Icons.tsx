@@ -132,6 +132,12 @@ export const TagIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const SendIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M21 3 10.5 13.5M21 3l-6.8 18-3.7-7.5L3 9.8 21 3Z" />
+  </Svg>
+);
+
 export const ClipboardIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M9 4h6v3H9V4ZM7 5.5H5.5v15h13v-15H17" />
