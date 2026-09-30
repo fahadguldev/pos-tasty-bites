@@ -10,6 +10,7 @@
     "worker": "node src/worker/index.js",
     "seed": "node src/seed/seed.js",
     "backfill": "node src/scripts/backfill-contacts.js",
+    "import:menu": "node src/scripts/import-whatsapp-menu.js",
     "probe:whatsapp": "node src/scripts/probe-openwa-qr.js",
     "test": "node src/smoke.js"
   },
