@@ -12,6 +12,7 @@ import * as analytics from '../controllers/analyticsController.js';
 import * as settings from '../controllers/settingsController.js';
 import * as upload from '../controllers/uploadController.js';
 import * as contacts from '../controllers/contactController.js';
+import * as expenses from '../controllers/expenseController.js';
 import * as campaigns from '../controllers/campaignController.js';
 import * as whatsapp from '../controllers/whatsappController.js';
 
@@ -91,6 +92,11 @@ router.get('/admin/contacts/:id', requireAdmin, contacts.getOne);
 router.post('/admin/contacts', requireAdmin, contacts.create);
 router.put('/admin/contacts/:id', requireAdmin, contacts.update);
 router.delete('/admin/contacts/:id', requireAdmin, contacts.remove);
+
+router.get('/admin/expenses', requireAdmin, expenses.list);
+router.post('/admin/expenses', requireAdmin, expenses.create);
+router.put('/admin/expenses/:id', requireAdmin, expenses.update);
+router.delete('/admin/expenses/:id', requireAdmin, expenses.remove);
 
 router.get('/admin/campaigns', requireAdmin, campaigns.list);
 router.post('/admin/campaigns', requireAdmin, campaigns.create);
