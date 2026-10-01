@@ -84,6 +84,14 @@ export const formatDate = (iso: string) =>
     minute: '2-digit',
   });
 
+/** a date with no clock time, for entries that only care about the day */
+export const formatDay = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-PK', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+
 /** a plain-language money trend, e.g. "+18% vs last period" */
 export const trend = (change: number | null | undefined) =>
   change === null || change === undefined
