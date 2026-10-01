@@ -514,6 +514,55 @@ export interface BackfillResult {
   skipped: { phone: string; name: string; reason: string }[];
 }
 
+// ---------- expenses ----------
+
+/** what the offer dropdown suggests; the server accepts any text, so old rows
+ *  whose category is no longer on this list still render as-is */
+export const EXPENSE_CATEGORIES = [
+  'Meat',
+  'Spices',
+  'Vegetables',
+  'Dairy & eggs',
+  'Drinks',
+  'Packaging',
+  'Fuel & transport',
+  'Rent & utilities',
+  'Staff & wages',
+  'Repairs & maintenance',
+  'Other',
+] as const;
+
+export interface Expense {
+  _id: string;
+  title: string;
+  category: string;
+  amount: number;
+  /** the day the money left the till, not the day it was typed in */
+  spentAt: string;
+  vendor: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExpenseList {
+  expenses: Expense[];
+  total: number;
+  page: number;
+  pages: number;
+  /** every category the shop has ever used, ignoring the current filter */
+  categories: string[];
+  /** count/amount/byCategory describe the current filter; the two totals do not */
+  summary: {
+    count: number;
+    amount: number;
+    byCategory: { category: string; amount: number; count: number }[];
+    thisMonth: number;
+    last30Days: number;
+  };
+}
+
+
 // ---------- whatsapp connection ----------
 
 export type WhatsappStatus = 'offline' | 'starting' | 'awaiting_scan' | 'scanning' | 'ready' | 'error' | 'stopped';
