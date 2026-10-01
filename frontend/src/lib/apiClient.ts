@@ -12,6 +12,8 @@ import type {
   ContactList,
   DailyPoint,
   Deal,
+  Expense,
+  ExpenseList,
   Insights,
   MessagePage,
   MonthlyResult,
@@ -189,6 +191,15 @@ export const deleteContact = (id: string) => http.delete(`/admin/contacts/${id}`
 /** the backfill is two-step: look at exactly which numbers it would add first */
 export const previewBackfill = () => unwrap<BackfillPreview>(http.get('/admin/contacts/backfill/preview'));
 export const applyBackfill = () => unwrap<BackfillResult>(http.post('/admin/contacts/backfill'));
+
+// ---------- admin: expenses ----------
+
+export const getAdminExpenses = (params: Record<string, string | number | undefined>) =>
+  unwrap<ExpenseList>(http.get('/admin/expenses', { params }));
+export const createExpense = (body: unknown) => unwrap<Expense>(http.post('/admin/expenses', body));
+export const updateExpense = (id: string, body: unknown) =>
+  unwrap<Expense>(http.put(`/admin/expenses/${id}`, body));
+export const deleteExpense = (id: string) => http.delete(`/admin/expenses/${id}`);
 
 // ---------- admin: campaigns ----------
 
