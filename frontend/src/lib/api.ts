@@ -2,7 +2,9 @@ import axios from 'axios';
 
 export const API = import.meta.env.VITE_API_URL || '/api';
 
-export const http = axios.create({ baseURL: API, timeout: 20000 });
+// analytics reads a slow database and stacks several queries per request, so
+// the client waits long enough instead of aborting the request at 20s
+export const http = axios.create({ baseURL: API, timeout: 60000 });
 
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('tb_admin_token');
