@@ -37,9 +37,36 @@ function lineCost(order) {
 
 export const overview = asyncHandler(async (req, res) => {
   const { from, to, days } = rangeFromQuery(req.query);
-  const orders = await Order.find({ createdAt: { $gte: from, $lte: to } })
-    .sort({ createdAt: -1 })
-    .lean({ virtuals: true });
+
+  // previous window of the same length, for the trend arrow
+  const spanMs = to.getTime() - from.getTime();
+  const prevFrom = new Date(from.getTime() - spanMs);
+  const prevTo = new Date(from.getTime() - 1);
+
+  // three round trips to the database, and each one used to wait for the last.
+  // run them together, and ask for only the fields the maths below reads —
+  // a full order dump is roughly three times the bytes over a slow link.
+  const [orders, prevOrders, byPayment] = await Promise.all([
+    Order.find({ createdAt: { $gte: from, $lte: to } })
+      .select('status total deliveryFee cost createdAt items.qty')
+      .sort({ createdAt: -1 })
+      .lean({ virtuals: true }),
+    Order.find({ createdAt: { $gte: prevFrom, $lte: prevTo } })
+      .select('status total')
+      .lean(),
+    Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to }, status: { $in: COUNTED } } },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          orders: { $sum: 1 },
+          amount: { $sum: '$total' },
+          pending: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'pending'] }, 1, 0] } },
+        },
+      },
+      { $sort: { amount: -1 } },
+    ]),
+  ]);
 
   const current = orders.filter((o) => matchesRange(o, from, to) && COUNTED.includes(o.status));
   const revenueOrders = current.filter((o) => EARNED_STATUSES.includes(o.status));
@@ -56,30 +83,13 @@ export const overview = asyncHandler(async (req, res) => {
   const cost = revenueOrders.reduce((s, o) => s + lineCost(o), 0);
   const profit = foodRevenue - cost;
 
-  // previous window of the same length, for the trend arrow
-  const spanMs = to.getTime() - from.getTime();
-  const prevFrom = new Date(from.getTime() - spanMs);
-  const prevTo = new Date(from.getTime() - 1);
-  const prevOrders = await Order.find({ createdAt: { $gte: prevFrom, $lte: prevTo } }).lean();
-  const prevRevenueOrders = prevOrders.filter((o) => EARNED_STATUSES.includes(o.status));
-  const prevRevenue = prevRevenueOrders.reduce((s, o) => s + (o.total || 0), 0);
+  const prevRevenue = prevOrders
+    .filter((o) => EARNED_STATUSES.includes(o.status))
+    .reduce((s, o) => s + (o.total || 0), 0);
 
   const bySource = {};
   COUNTED.forEach((s) => { bySource[s] = 0; });
   current.forEach((o) => { bySource[o.status] = (bySource[o.status] || 0) + 1; });
-
-  const byPayment = await Order.aggregate([
-    { $match: { createdAt: { $gte: from, $lte: to }, status: { $in: COUNTED } } },
-    {
-      $group: {
-        _id: '$paymentMethod',
-        orders: { $sum: 1 },
-        amount: { $sum: '$total' },
-        pending: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'pending'] }, 1, 0] } },
-      },
-    },
-    { $sort: { amount: -1 } },
-  ]);
 
   const newOrders = orders.filter((o) => o.status === 'new');
 
@@ -116,7 +126,9 @@ export const overview = asyncHandler(async (req, res) => {
 
 export const dailySeries = asyncHandler(async (req, res) => {
   const { from, to, days } = rangeFromQuery(req.query);
-  const orders = await Order.find({ createdAt: { $gte: from, $lte: to } }).lean();
+  const orders = await Order.find({ createdAt: { $gte: from, $lte: to } })
+    .select('status total deliveryFee cost createdAt items.qty')
+    .lean();
 
   const buckets = new Map();
   for (let i = 0; i < days; i += 1) {
@@ -156,7 +168,9 @@ export const monthly = asyncHandler(async (req, res) => {
   const from = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
   from.setHours(0, 0, 0, 0);
 
-  const orders = await Order.find({ createdAt: { $gte: from } }).lean();
+  const orders = await Order.find({ createdAt: { $gte: from } })
+    .select('status total deliveryFee cost createdAt items.qty')
+    .lean();
 
   const buckets = new Map();
   for (let i = 0; i < months; i += 1) {
@@ -297,7 +311,9 @@ export const topDeals = asyncHandler(async (req, res) => {
 export const insights = asyncHandler(async (req, res) => {
   const { from, to, days } = rangeFromQuery(req.query);
   const [orders, topProducts_, topDeals_] = await Promise.all([
-    Order.find({ createdAt: { $gte: from, $lte: to } }).lean(),
+    Order.find({ createdAt: { $gte: from, $lte: to } })
+      .select('status total deliveryFee cost createdAt customer.phone customer.area')
+      .lean(),
     topItems('product', { from, to, limit: 5 }),
     topItems('deal', { from, to, limit: 5 }),
   ]);
