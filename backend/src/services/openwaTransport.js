@@ -43,6 +43,34 @@ function envNumber(name, fallback) {
   return Number.isFinite(raw) && raw > 0 ? raw : fallback;
 }
 
+export function resolveChromePath() {
+  const configured = String(process.env.WHATSAPP_CHROME_PATH || '').trim();
+  if (configured && fs.existsSync(configured)) {
+    return configured;
+  }
+
+  const standardPaths = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/snap/bin/chromium',
+    '/opt/google/chrome/google-chrome',
+    '/opt/google/chrome/chrome',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ];
+
+  for (const p of standardPaths) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+
+  return undefined;
+}
+
 /**
  * WhatsApp addresses a chat as the bare number plus "@c.us". A phone number on
  * its own is not a valid destination, so every send goes through here.
@@ -305,7 +333,7 @@ export async function createOpenWaTransport({ onStatus = () => {} } = {}) {
         debug: envFlag('WHATSAPP_DEBUG', false),
         deleteSessionDataOnLogout: true,
         killClientOnLogout: true,
-        executablePath: process.env.WHATSAPP_CHROME_PATH || undefined,
+        executablePath: resolveChromePath(),
         qrTimeoutMs: loginTimeoutMs,
         authTimeoutMs: loginTimeoutMs,
       });
@@ -325,7 +353,7 @@ export async function createOpenWaTransport({ onStatus = () => {} } = {}) {
         publish({ state: created.getState(), ready: true, qr: '', qrAscii: '' });
         await readLinkedNumber();
       } catch (error) {
-        lastError = String(error?.message || error);
+        lastError = String(error?.cause?.message || error?.message || error);
         publish({ state: 'STOPPED', ready: false, lastError });
 
         client = null;

@@ -224,10 +224,14 @@ run()
     process.exit(0);
   })
   .catch(async (error) => {
-    await publishStatus({ state: 'STOPPED', ready: false, lastError: String(error?.message || error) }).catch(
+    const errorDetail = String(error?.cause?.message || error?.message || error);
+    await publishStatus({ state: 'STOPPED', ready: false, lastError: errorDetail }).catch(
       () => {}
     );
-    console.error('[worker] stopped:', error.message);
+    console.error('[worker] stopped:', errorDetail);
+    if (error?.cause?.stack) {
+      console.error(error.cause.stack);
+    }
     await disconnectDB();
     process.exit(1);
   });
